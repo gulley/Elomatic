@@ -1,0 +1,787 @@
+// Item class definition
+class Item {
+    constructor(title, url = '', score = 1500, comparisons = 0) {
+        this.title = title;
+        this.url = url;
+        this.score = score;
+        this.comparisons = comparisons;
+    }
+}
+
+// EloRating class for managing Elo calculations
+class EloRating {
+    constructor(kFactor = 32) {
+        this.kFactor = kFactor;
+    }
+
+    // Calculate expected score
+    getExpectedScore(ratingA, ratingB) {
+        return 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
+    }
+
+    // Calculate new ratings
+    calculateNewRatings(winnerRating, loserRating) {
+        const expectedWinner = this.getExpectedScore(winnerRating, loserRating);
+        const expectedLoser = this.getExpectedScore(loserRating, winnerRating);
+
+        const newWinnerRating = Math.round(winnerRating + this.kFactor * (1 - expectedWinner));
+        const newLoserRating = Math.round(loserRating + this.kFactor * (0 - expectedLoser));
+
+        return {
+            winner: newWinnerRating,
+            loser: newLoserRating
+        };
+    }
+}
+
+// App class for main application logic
+class ElomaticApp {
+    constructor() {
+        this.items = [];
+        this.eloRating = new EloRating();
+        this.currentComparison = null;
+        this.originalEditText = '';
+        
+        // DOM elements
+        this.pages = {
+            main: document.getElementById('mainPage'),
+            edit: document.getElementById('editPage'),
+            rank: document.getElementById('rankPage')
+        };
+        
+        this.elements = {
+            itemList: document.getElementById('itemList'),
+            bulkEditTextarea: document.getElementById('bulkEditTextarea'),
+            comparisonItemA: document.getElementById('comparisonItemA'),
+            comparisonItemB: document.getElementById('comparisonItemB'),
+            notification: document.getElementById('notification'),
+            newItemTitle: document.getElementById('newItemTitle'),
+            newItemUrl: document.getElementById('newItemUrl'),
+            importCsvInput: document.getElementById('importCsvInput'),
+            confirmResetModal: document.getElementById('confirmResetModal'),
+            unsavedChangesModal: document.getElementById('unsavedChangesModal')
+        };
+
+        // Initialize
+        this.loadFromLocalStorage();
+        this.renderItemList();
+        this.setupEventListeners();
+    }
+
+    // Setup all event listeners
+    setupEventListeners() {
+        // Button clicks
+        document.getElementById('rankButton').addEventListener('click', () => this.showRankPage());
+        document.getElementById('editButton').addEventListener('click', () => this.showEditPage());
+        document.getElementById('backToMainButton').addEventListener('click', () => this.showMainPage());
+        document.getElementById('saveEditButton').addEventListener('click', () => this.saveEditChanges());
+        document.getElementById('cancelEditButton').addEventListener('click', () => this.checkUnsavedChanges());
+        document.getElementById('addItemButton').addEventListener('click', () => this.addNewItem());
+        document.getElementById('resetScoresButton').addEventListener('click', () => this.showResetConfirmation());
+        document.getElementById('exportCsvButton').addEventListener('click', () => this.exportToCsv());
+        document.getElementById('importCsvButton').addEventListener('click', () => this.elements.importCsvInput.click());
+        
+        // Modal buttons
+        document.getElementById('confirmResetButton').addEventListener('click', () => this.resetAllScores());
+        document.getElementById('cancelResetButton').addEventListener('click', () => this.hideModal(this.elements.confirmResetModal));
+        document.getElementById('discardChangesButton').addEventListener('click', () => {
+            this.hideModal(this.elements.unsavedChangesModal);
+            this.showMainPage();
+        });
+        document.getElementById('keepEditingButton').addEventListener('click', () => {
+            this.hideModal(this.elements.unsavedChangesModal);
+        });
+
+        // File input change
+        this.elements.importCsvInput.addEventListener('change', (e) => this.handleCsvImport(e));
+
+        // Comparison items
+        this.elements.comparisonItemA.addEventListener('click', () => this.handleComparison(true));
+        this.elements.comparisonItemB.addEventListener('click', () => this.handleComparison(false));
+    }
+
+    // Load data from localStorage
+    loadFromLocalStorage() {
+        const storedItems = localStorage.getItem('elomaticItems');
+        if (storedItems) {
+            this.items = JSON.parse(storedItems);
+        }
+    }
+
+    // Save data to localStorage
+    saveToLocalStorage() {
+        localStorage.setItem('elomaticItems', JSON.stringify(this.items));
+    }
+
+    // Render the item list on the main page
+    renderItemList() {
+        // Sort items by score (high to low)
+        const sortedItems = [...this.items].sort((a, b) => b.score - a.score);
+        
+        this.elements.itemList.innerHTML = '';
+        
+        if (sortedItems.length === 0) {
+            const emptyItem = document.createElement('li');
+            emptyItem.textContent = 'No items yet. Add some items to get started!';
+            emptyItem.style.textAlign = 'center';
+            emptyItem.style.padding = '20px';
+            this.elements.itemList.appendChild(emptyItem);
+            return;
+        }
+
+        sortedItems.forEach((item, index) => {
+            const listItem = document.createElement('li');
+            listItem.className = 'item';
+            
+            // Create the title element
+            const titleElement = document.createElement('div');
+            titleElement.className = 'item-content';
+            
+            const titleText = document.createElement('div');
+            titleText.className = 'item-title';
+            
+            if (item.url) {
+                const link = document.createElement('a');
+                link.href = this.ensureUrl(item.url);
+                link.textContent = item.title;
+                link.target = '_blank';
+                titleText.appendChild(link);
+            } else {
+                titleText.textContent = item.title;
+            }
+            
+            titleElement.appendChild(titleText);
+            
+            // Create the score element
+            const scoreElement = document.createElement('div');
+            scoreElement.className = 'item-score';
+            scoreElement.textContent = item.score;
+            
+            // Add comparison indicator
+            const indicatorElement = document.createElement('span');
+            indicatorElement.className = 'comparison-indicator';
+            indicatorElement.title = `Compared ${item.comparisons} times`;
+            
+            // Color based on comparison frequency
+            if (item.comparisons === 0) {
+                indicatorElement.style.backgroundColor = '#e74c3c'; // Red for never compared
+            } else if (item.comparisons < 5) {
+                indicatorElement.style.backgroundColor = '#f39c12'; // Orange for few comparisons
+            } else if (item.comparisons < 10) {
+                indicatorElement.style.backgroundColor = '#f1c40f'; // Yellow for some comparisons
+            } else {
+                indicatorElement.style.backgroundColor = '#2ecc71'; // Green for many comparisons
+            }
+            
+            scoreElement.appendChild(indicatorElement);
+            
+            // Create delete button
+            const deleteButton = document.createElement('button');
+            deleteButton.className = 'btn btn-danger';
+            deleteButton.textContent = 'Delete';
+            deleteButton.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.deleteItem(index);
+            });
+            
+            // Add all elements to the list item
+            listItem.appendChild(titleElement);
+            listItem.appendChild(scoreElement);
+            listItem.appendChild(deleteButton);
+            
+            this.elements.itemList.appendChild(listItem);
+        });
+    }
+
+    // Make sure URLs have http:// or https:// prefix
+    ensureUrl(url) {
+        if (!url) return '';
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+            return url;
+        }
+        return 'https://' + url;
+    }
+
+    // Add a new item from the input fields
+    addNewItem() {
+        const title = this.elements.newItemTitle.value.trim();
+        const url = this.elements.newItemUrl.value.trim();
+        
+        if (!title) {
+            this.showNotification('Title is required!', 'danger');
+            return;
+        }
+        
+        const newItem = new Item(title, url);
+        this.items.push(newItem);
+        this.saveToLocalStorage();
+        this.renderItemList();
+        
+        // Clear input fields
+        this.elements.newItemTitle.value = '';
+        this.elements.newItemUrl.value = '';
+        
+        this.showNotification('Item added successfully!');
+    }
+
+    // Delete an item
+    deleteItem(index) {
+        const item = this.items[index];
+        this.items.splice(index, 1);
+        this.saveToLocalStorage();
+        this.renderItemList();
+        this.showNotification(`Deleted: ${item.title}`);
+    }
+
+    // Reset all scores to 1500
+    resetAllScores() {
+        this.items.forEach(item => {
+            item.score = 1500;
+            item.comparisons = 0;
+        });
+        this.saveToLocalStorage();
+        this.renderItemList();
+        this.hideModal(this.elements.confirmResetModal);
+        this.showNotification('All scores have been reset to 1500');
+    }
+
+    // Show the reset confirmation modal
+    showResetConfirmation() {
+        this.showModal(this.elements.confirmResetModal);
+    }
+
+    // Check for unsaved changes before leaving edit page
+    checkUnsavedChanges() {
+        const currentText = this.elements.bulkEditTextarea.value;
+        if (currentText !== this.originalEditText) {
+            this.showModal(this.elements.unsavedChangesModal);
+        } else {
+            this.showMainPage();
+        }
+    }
+
+    // Save edited items
+    saveEditChanges() {
+        const text = this.elements.bulkEditTextarea.value.trim();
+        const lines = text.split('\n');
+        
+        // Clear the items array but keep the old one for reference
+        const oldItems = [...this.items];
+        this.items = [];
+        
+        lines.forEach(line => {
+            if (!line.trim()) return;
+            
+            // Parse the line (format: title, url)
+            const parts = line.split(',');
+            const title = parts[0].trim();
+            const url = parts.length > 1 ? parts[1].trim() : '';
+            
+            if (!title) return;
+            
+            // Try to find the item in the old array to preserve score and comparisons
+            const oldItem = oldItems.find(item => item.title === title && item.url === url);
+            
+            if (oldItem) {
+                this.items.push(oldItem);
+            } else {
+                this.items.push(new Item(title, url));
+            }
+        });
+        
+        this.saveToLocalStorage();
+        this.showMainPage();
+        this.showNotification('Changes saved successfully!');
+    }
+
+    // Show the edit page
+    showEditPage() {
+        // Prepare the text for bulk editing
+        let editText = '';
+        this.items.forEach(item => {
+            editText += `${item.title}, ${item.url}\n`;
+        });
+        
+        this.elements.bulkEditTextarea.value = editText;
+        this.originalEditText = editText;
+        
+        this.switchPage('edit');
+    }
+
+    // Show the rank page and select two items for comparison
+    showRankPage() {
+        if (this.items.length < 2) {
+            this.showNotification('You need at least 2 items to start ranking!', 'warning');
+            return;
+        }
+        
+        this.selectItemsForComparison();
+        this.switchPage('rank');
+    }
+
+    // Show the main page
+    showMainPage() {
+        this.switchPage('main');
+        this.renderItemList();
+    }
+
+    // Switch between pages
+    switchPage(page) {
+        Object.keys(this.pages).forEach(key => {
+            this.pages[key].classList.remove('active');
+        });
+        this.pages[page].classList.add('active');
+    }
+
+    // Select two different items for comparison
+    selectItemsForComparison() {
+        if (this.items.length < 2) return;
+        
+        // Divide items into two groups: more compared and less compared
+        // First, calculate the median number of comparisons
+        const sortedByComparisons = [...this.items].sort((a, b) => a.comparisons - b.comparisons);
+        const median = sortedByComparisons[Math.floor(sortedByComparisons.length / 2)].comparisons;
+        
+        // Split items into two groups
+        const moreCompared = this.items.filter((item, index) => item.comparisons >= median);
+        const lessCompared = this.items.filter((item, index) => item.comparisons < median);
+        
+        // Handle edge cases where all items might be in one group
+        if (moreCompared.length === 0 || lessCompared.length === 0) {
+            // Fall back to completely random selection
+            let indexA = Math.floor(Math.random() * this.items.length);
+            let indexB = Math.floor(Math.random() * this.items.length);
+            
+            // Make sure they're different
+            while (indexB === indexA) {
+                indexB = Math.floor(Math.random() * this.items.length);
+            }
+            
+            const itemA = this.items[indexA];
+            const itemB = this.items[indexB];
+            
+            // Store the current comparison
+            this.currentComparison = {
+                indexA,
+                indexB
+            };
+            
+            // Update the DOM
+            this.updateComparisonDisplay(itemA, itemB);
+            return;
+        }
+        
+        // Select one item from each group
+        const moreComparedItem = moreCompared[Math.floor(Math.random() * moreCompared.length)];
+        const lessComparedItem = lessCompared[Math.floor(Math.random() * lessCompared.length)];
+        
+        // Find their indices in the original items array
+        const indexA = this.items.findIndex(item => item === moreComparedItem);
+        const indexB = this.items.findIndex(item => item === lessComparedItem);
+        
+        const itemA = this.items[indexA];
+        const itemB = this.items[indexB];
+        
+        // Store the current comparison
+        this.currentComparison = {
+            indexA,
+            indexB
+        };
+        
+        // Update the DOM
+        this.updateComparisonDisplay(itemA, itemB);
+    }
+
+    // Update the comparison display
+    updateComparisonDisplay(itemA, itemB) {
+        // Item A
+        this.elements.comparisonItemA.querySelector('.comparison-item-title').textContent = itemA.title;
+        this.elements.comparisonItemA.querySelector('.comparison-item-score').textContent = itemA.score;
+        
+        const urlElementA = this.elements.comparisonItemA.querySelector('.comparison-item-url');
+        if (itemA.url) {
+            urlElementA.href = this.ensureUrl(itemA.url);
+            urlElementA.textContent = itemA.url;
+            urlElementA.style.display = 'block';
+        } else {
+            urlElementA.style.display = 'none';
+        }
+        
+        // Item B
+        this.elements.comparisonItemB.querySelector('.comparison-item-title').textContent = itemB.title;
+        this.elements.comparisonItemB.querySelector('.comparison-item-score').textContent = itemB.score;
+        
+        const urlElementB = this.elements.comparisonItemB.querySelector('.comparison-item-url');
+        if (itemB.url) {
+            urlElementB.href = this.ensureUrl(itemB.url);
+            urlElementB.textContent = itemB.url;
+            urlElementB.style.display = 'block';
+        } else {
+            urlElementB.style.display = 'none';
+        }
+    }
+
+    // Handle comparison selection
+    handleComparison(isItemASelected) {
+        if (!this.currentComparison) return;
+        
+        // Disable clicking during animation
+        this.elements.comparisonItemA.style.pointerEvents = 'none';
+        this.elements.comparisonItemB.style.pointerEvents = 'none';
+        
+        const { indexA, indexB } = this.currentComparison;
+        const itemA = this.items[indexA];
+        const itemB = this.items[indexB];
+        
+        // Determine winner and loser
+        const winner = isItemASelected ? itemA : itemB;
+        const loser = isItemASelected ? itemB : itemA;
+        const winnerIndex = isItemASelected ? indexA : indexB;
+        const loserIndex = isItemASelected ? indexB : indexA;
+        
+        // Calculate new ratings
+        const oldWinnerScore = winner.score;
+        const oldLoserScore = loser.score;
+        
+        const newRatings = this.eloRating.calculateNewRatings(winner.score, loser.score);
+        
+        // Update scores
+        winner.score = newRatings.winner;
+        loser.score = newRatings.loser;
+        
+        // Update comparison counts
+        winner.comparisons++;
+        loser.comparisons++;
+        
+        // Save to localStorage
+        this.saveToLocalStorage();
+        
+        // Play sound effect if available
+        this.playSound(isItemASelected ? 'win' : 'lose');
+        
+        // Show score change animation
+        this.animateScoreChange(
+            isItemASelected ? this.elements.comparisonItemA : this.elements.comparisonItemB,
+            oldWinnerScore,
+            newRatings.winner,
+            true
+        );
+        
+        this.animateScoreChange(
+            isItemASelected ? this.elements.comparisonItemB : this.elements.comparisonItemA,
+            oldLoserScore,
+            newRatings.loser,
+            false
+        );
+        
+        // After animation, select new items
+        setTimeout(() => {
+            // Re-enable clicking
+            this.elements.comparisonItemA.style.pointerEvents = 'auto';
+            this.elements.comparisonItemB.style.pointerEvents = 'auto';
+            this.selectItemsForComparison();
+        }, 2000);
+    }
+
+    // Animate score change
+    animateScoreChange(element, oldScore, newScore, isWinner) {
+        // Add winner/loser class for animation
+        element.classList.add(isWinner ? 'winner' : 'loser');
+        
+        // Create score change element
+        const scoreChangeElement = document.createElement('div');
+        scoreChangeElement.className = `score-change ${isWinner ? 'up' : 'down'}`;
+        
+        const scoreDiff = newScore - oldScore;
+        scoreChangeElement.textContent = isWinner ? `+${scoreDiff}` : scoreDiff;
+        
+        // Position the element
+        const rect = element.getBoundingClientRect();
+        scoreChangeElement.style.left = `${rect.left + rect.width / 2}px`;
+        scoreChangeElement.style.top = `${rect.top + rect.height / 2}px`;
+        
+        document.body.appendChild(scoreChangeElement);
+        
+        // Update the score with a counting effect
+        this.animateCounter(element.querySelector('.comparison-item-score'), oldScore, newScore);
+        
+        // Add confetti for winner
+        if (isWinner) {
+            this.createConfetti(element);
+        }
+        
+        // Remove elements after animation
+        setTimeout(() => {
+            if (document.body.contains(scoreChangeElement)) {
+                document.body.removeChild(scoreChangeElement);
+            }
+            // Remove winner/loser class
+            element.classList.remove(isWinner ? 'winner' : 'loser');
+        }, 1500);
+    }
+
+    // Create confetti for winner celebration effect
+    createConfetti(element) {
+        const colors = ['#2ecc71', '#3498db', '#f1c40f', '#e74c3c', '#9b59b6'];
+        const confettiCount = 50;
+        const shapes = ['circle', 'square', 'triangle'];
+        
+        for (let i = 0; i < confettiCount; i++) {
+            const confetti = document.createElement('div');
+            confetti.className = 'confetti';
+            
+            // Random properties
+            const color = colors[Math.floor(Math.random() * colors.length)];
+            const shape = shapes[Math.floor(Math.random() * shapes.length)];
+            const size = Math.random() * 10 + 5;
+            
+            confetti.style.backgroundColor = color;
+            confetti.style.width = `${size}px`;
+            confetti.style.height = `${size}px`;
+            
+            if (shape === 'circle') {
+                confetti.style.borderRadius = '50%';
+            } else if (shape === 'triangle') {
+                confetti.style.width = '0';
+                confetti.style.height = '0';
+                confetti.style.backgroundColor = 'transparent';
+                confetti.style.borderLeft = `${size/2}px solid transparent`;
+                confetti.style.borderRight = `${size/2}px solid transparent`;
+                confetti.style.borderBottom = `${size}px solid ${color}`;
+            }
+            
+            // Random position within the element
+            const rect = element.getBoundingClientRect();
+            const x = Math.random() * rect.width;
+            confetti.style.left = `${x}px`;
+            confetti.style.top = '0';
+            
+            // Random animation duration and delay
+            const duration = Math.random() * 1 + 1; // 1-2s
+            const delay = Math.random() * 0.5;
+            confetti.style.animationDuration = `${duration}s`;
+            confetti.style.animationDelay = `${delay}s`;
+            
+            // Add to element
+            element.appendChild(confetti);
+            
+            // Remove after animation
+            setTimeout(() => {
+                if (element.contains(confetti)) {
+                    element.removeChild(confetti);
+                }
+            }, (duration + delay) * 1000);
+        }
+    }
+    
+    // Animate counter effect for score changes
+    animateCounter(element, oldValue, newValue) {
+        const duration = 1000; // ms
+        const frameDuration = 1000 / 60; // 60fps
+        const totalFrames = Math.round(duration / frameDuration);
+        const valueChange = newValue - oldValue;
+        
+        let frame = 0;
+        const counter = setInterval(() => {
+            frame++;
+            const progress = frame / totalFrames;
+            const currentValue = Math.round(oldValue + valueChange * progress);
+            
+            element.textContent = currentValue;
+            
+            if (frame === totalFrames) {
+                clearInterval(counter);
+                element.textContent = newValue;
+            }
+        }, frameDuration);
+    }
+    
+    // Play sound effects
+    playSound(type) {
+        // This is a placeholder for sound effects
+        // You could implement actual sounds by creating audio elements
+        // For example:
+        // const sound = new Audio('sounds/' + type + '.mp3');
+        // sound.play();
+        
+        // For now, we'll just log to console
+        console.log(`Sound effect: ${type}`);
+    }
+    
+    // Show notification
+    showNotification(message, type = 'success') {
+        this.elements.notification.textContent = message;
+        this.elements.notification.className = 'notification show';
+        
+        if (type === 'danger') {
+            this.elements.notification.style.borderLeftColor = 'var(--danger)';
+        } else if (type === 'warning') {
+            this.elements.notification.style.borderLeftColor = 'var(--warning)';
+        } else {
+            this.elements.notification.style.borderLeftColor = 'var(--success)';
+        }
+        
+        setTimeout(() => {
+            this.elements.notification.classList.remove('show');
+        }, 3000);
+    }
+
+    // Show modal
+    showModal(modal) {
+        modal.classList.add('active');
+    }
+
+    // Hide modal
+    hideModal(modal) {
+        modal.classList.remove('active');
+    }
+
+    // Export data to CSV
+    exportToCsv() {
+        if (this.items.length === 0) {
+            this.showNotification('No items to export', 'warning');
+            return;
+        }
+        
+        let csvContent = 'item,URL,score\n';
+        
+        this.items.forEach(item => {
+            // Escape commas and quotes in the title and URL if needed
+            const escapedTitle = item.title.includes(',') ? `"${item.title}"` : item.title;
+            const escapedUrl = item.url.includes(',') ? `"${item.url}"` : item.url;
+            
+            csvContent += `${escapedTitle},${escapedUrl},${item.score}\n`;
+        });
+        
+        // Create a Blob and download link
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', 'elomatic_data.csv');
+        link.style.visibility = 'hidden';
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        this.showNotification('Data exported successfully!');
+    }
+
+    // Handle CSV import
+    handleCsvImport(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        
+        reader.onload = (e) => {
+            const content = e.target.result;
+            const lines = content.split('\n');
+            
+            // Skip header row
+            const header = lines[0].toLowerCase();
+            if (!header.includes('item') || !header.includes('score')) {
+                this.showNotification('Invalid CSV format. Header should contain "item" and "score" columns.', 'danger');
+                return;
+            }
+            
+            const headerParts = header.split(',');
+            const titleIndex = headerParts.findIndex(part => part.trim() === 'item');
+            const urlIndex = headerParts.findIndex(part => part.trim() === 'url');
+            const scoreIndex = headerParts.findIndex(part => part.trim() === 'score');
+            
+            if (titleIndex === -1 || scoreIndex === -1) {
+                this.showNotification('CSV must have "item" and "score" columns', 'danger');
+                return;
+            }
+            
+            // Keep old items for reference
+            const oldItems = [...this.items];
+            this.items = [];
+            
+            let importCount = 0;
+            
+            // Process data rows
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                // Handle quoted values that may contain commas
+                const values = this.parseCSVLine(line);
+                
+                if (values.length <= Math.max(titleIndex, scoreIndex)) continue;
+                
+                const title = values[titleIndex].trim();
+                const url = urlIndex !== -1 && values.length > urlIndex ? values[urlIndex].trim() : '';
+                const scoreStr = values[scoreIndex].trim();
+                
+                if (!title) continue;
+                
+                // Try to parse score as a number
+                const score = parseInt(scoreStr) || 1500;
+                
+                // Check if this item already exists
+                const existingItemIndex = oldItems.findIndex(item => 
+                    item.title === title && item.url === url);
+                
+                if (existingItemIndex !== -1) {
+                    // Update existing item
+                    const existingItem = oldItems[existingItemIndex];
+                    existingItem.score = score;
+                    this.items.push(existingItem);
+                } else {
+                    // Create new item
+                    this.items.push(new Item(title, url, score));
+                }
+                
+                importCount++;
+            }
+            
+            if (importCount === 0) {
+                this.showNotification('No valid items found in the CSV', 'warning');
+                this.items = oldItems; // Restore old items
+            } else {
+                this.saveToLocalStorage();
+                this.renderItemList();
+                this.showNotification(`Imported ${importCount} items successfully!`);
+            }
+            
+            // Reset the file input
+            event.target.value = '';
+        };
+        
+        reader.readAsText(file);
+    }
+
+    // Parse CSV line handling quoted values
+    parseCSVLine(line) {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            
+            if (char === '"') {
+                inQuotes = !inQuotes;
+            } else if (char === ',' && !inQuotes) {
+                result.push(current);
+                current = '';
+            } else {
+                current += char;
+            }
+        }
+        
+        // Add the last value
+        result.push(current);
+        
+        return result;
+    }
+}
+
+// Initialize the app when the DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    const app = new ElomaticApp();
+});
