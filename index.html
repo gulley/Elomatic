@@ -432,7 +432,7 @@
         <!-- Main Page -->
         <div id="mainPage" class="page active">
             <div class="menu-bar">
-                <button id="rankButton" class="btn btn-primary">Rank Items</button>
+                <button id="rankButton" class="btn btn-primary">COMPARE</button>
                 <button id="editButton" class="btn btn-primary">Edit List</button>
                 <button id="resetScoresButton" class="btn btn-warning">Reset Scores</button>
             </div>
@@ -440,6 +440,13 @@
             <div class="add-item-form">
                 <input type="text" id="newItemTitle" placeholder="Enter item text">
                 <button id="addItemButton" class="btn btn-success">Add Item</button>
+            </div>
+
+            <div class="sort-options">
+                <span>Sort by:</span>
+                <button id="sortByScore" class="btn-sort active">Score</button>
+                <button id="sortByAlpha" class="btn-sort">Alphabetical</button>
+                <button id="sortByCompares" class="btn-sort">Compares</button>
             </div>
 
             <ul id="itemList" class="item-list">

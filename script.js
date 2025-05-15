@@ -40,6 +40,7 @@ class ElomaticApp {
         this.eloRating = new EloRating();
         this.currentComparison = null;
         this.originalEditText = '';
+        this.sortMethod = 'score'; // Default sort method
         
         // DOM elements
         this.pages = {
@@ -57,7 +58,10 @@ class ElomaticApp {
             newItemTitle: document.getElementById('newItemTitle'),
             importCsvInput: document.getElementById('importCsvInput'),
             confirmResetModal: document.getElementById('confirmResetModal'),
-            unsavedChangesModal: document.getElementById('unsavedChangesModal')
+            unsavedChangesModal: document.getElementById('unsavedChangesModal'),
+            sortByScore: document.getElementById('sortByScore'),
+            sortByAlpha: document.getElementById('sortByAlpha'),
+            sortByCompares: document.getElementById('sortByCompares')
         };
 
         // Initialize
@@ -78,6 +82,11 @@ class ElomaticApp {
         document.getElementById('resetScoresButton').addEventListener('click', () => this.showResetConfirmation());
         document.getElementById('exportCsvButton').addEventListener('click', () => this.exportToCsv());
         document.getElementById('importCsvButton').addEventListener('click', () => this.elements.importCsvInput.click());
+        
+        // Sort buttons
+        this.elements.sortByScore.addEventListener('click', () => this.setSortMethod('score'));
+        this.elements.sortByAlpha.addEventListener('click', () => this.setSortMethod('alpha'));
+        this.elements.sortByCompares.addEventListener('click', () => this.setSortMethod('compares'));
         
         // Modal buttons
         document.getElementById('confirmResetButton').addEventListener('click', () => this.resetAllScores());
@@ -111,10 +120,36 @@ class ElomaticApp {
         localStorage.setItem('elomaticItems', JSON.stringify(this.items));
     }
 
+    // Set the sort method and update UI
+    setSortMethod(method) {
+        if (method === this.sortMethod) return;
+        
+        this.sortMethod = method;
+        
+        // Update active button state
+        this.elements.sortByScore.classList.toggle('active', method === 'score');
+        this.elements.sortByAlpha.classList.toggle('active', method === 'alpha');
+        this.elements.sortByCompares.classList.toggle('active', method === 'compares');
+        
+        // Re-render the list with the new sort method
+        this.renderItemList();
+    }
+    
     // Render the item list on the main page
     renderItemList() {
-        // Sort items by score (high to low)
-        const sortedItems = [...this.items].sort((a, b) => b.score - a.score);
+        // Sort items based on the current sort method
+        let sortedItems;
+        
+        if (this.sortMethod === 'alpha') {
+            // Sort alphabetically by title
+            sortedItems = [...this.items].sort((a, b) => a.title.localeCompare(b.title));
+        } else if (this.sortMethod === 'compares') {
+            // Sort by number of comparisons (high to low)
+            sortedItems = [...this.items].sort((a, b) => b.comparisons - a.comparisons);
+        } else {
+            // Default: sort by score (high to low)
+            sortedItems = [...this.items].sort((a, b) => b.score - a.score);
+        }
         
         this.elements.itemList.innerHTML = '';
         
@@ -153,11 +188,11 @@ class ElomaticApp {
             
             // Color based on comparison frequency
             if (item.comparisons === 0) {
-                indicatorElement.style.backgroundColor = '#e74c3c'; // Red for never compared
+                indicatorElement.style.backgroundColor = '#777777'; // Gray for never compared
             } else if (item.comparisons < 5) {
-                indicatorElement.style.backgroundColor = '#f39c12'; // Orange for few comparisons
+                indicatorElement.style.backgroundColor = '#e74c3c'; // Red for few comparisons
             } else if (item.comparisons < 10) {
-                indicatorElement.style.backgroundColor = '#f1c40f'; // Yellow for some comparisons
+                indicatorElement.style.backgroundColor = '#f39c12'; // Orange for some comparisons
             } else {
                 indicatorElement.style.backgroundColor = '#2ecc71'; // Green for many comparisons
             }
@@ -208,13 +243,42 @@ class ElomaticApp {
         this.showNotification('Item added successfully!');
     }
 
-    // Delete an item
+    // Delete an item with animation
     deleteItem(index) {
+        // Get the item and its title before removing it
         const item = this.items[index];
-        this.items.splice(index, 1);
-        this.saveToLocalStorage();
-        this.renderItemList();
-        this.showNotification(`Deleted: ${item.title}`);
+        const itemTitle = item.title;
+        
+        // Get the DOM element directly from the itemList children
+        const itemElement = this.elements.itemList.children[index];
+        
+        if (itemElement) {
+            // Add the deleting class to trigger the animation
+            itemElement.classList.add('deleting');
+            
+            // Wait for the animation to complete before removing the item
+            setTimeout(() => {
+                // Now remove the item from the data model
+                // We need to find the item again as indices might have changed
+                const currentIndex = this.items.findIndex(i => i === item);
+                if (currentIndex !== -1) {
+                    this.items.splice(currentIndex, 1);
+                    this.saveToLocalStorage();
+                }
+                
+                // Remove the element from the DOM directly
+                if (itemElement.parentNode) {
+                    itemElement.parentNode.removeChild(itemElement);
+                }
+                // Notification removed
+            }, 300);
+        } else {
+            // If DOM element not found, just update the data model
+            this.items.splice(index, 1);
+            this.saveToLocalStorage();
+            this.renderItemList();
+            // Notification removed
+        }
     }
 
     // Reset all scores to 1500
