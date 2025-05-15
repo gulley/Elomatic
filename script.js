@@ -1,8 +1,7 @@
 // Item class definition
 class Item {
-    constructor(title, url = '', score = 1500, comparisons = 0) {
+    constructor(title, score = 1500, comparisons = 0) {
         this.title = title;
-        this.url = url;
         this.score = score;
         this.comparisons = comparisons;
     }
@@ -56,7 +55,6 @@ class ElomaticApp {
             comparisonItemB: document.getElementById('comparisonItemB'),
             notification: document.getElementById('notification'),
             newItemTitle: document.getElementById('newItemTitle'),
-            newItemUrl: document.getElementById('newItemUrl'),
             importCsvInput: document.getElementById('importCsvInput'),
             confirmResetModal: document.getElementById('confirmResetModal'),
             unsavedChangesModal: document.getElementById('unsavedChangesModal')
@@ -139,16 +137,7 @@ class ElomaticApp {
             
             const titleText = document.createElement('div');
             titleText.className = 'item-title';
-            
-            if (item.url) {
-                const link = document.createElement('a');
-                link.href = this.ensureUrl(item.url);
-                link.textContent = item.title;
-                link.target = '_blank';
-                titleText.appendChild(link);
-            } else {
-                titleText.textContent = item.title;
-            }
+            titleText.textContent = item.title;
             
             titleElement.appendChild(titleText);
             
@@ -175,10 +164,11 @@ class ElomaticApp {
             
             scoreElement.appendChild(indicatorElement);
             
-            // Create delete button
+            // Create delete button (small red x)
             const deleteButton = document.createElement('button');
-            deleteButton.className = 'btn btn-danger';
-            deleteButton.textContent = 'Delete';
+            deleteButton.className = 'btn-delete';
+            deleteButton.textContent = 'x';
+            deleteButton.title = 'Delete item';
             deleteButton.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.deleteItem(index);
@@ -193,33 +183,27 @@ class ElomaticApp {
         });
     }
 
-    // Make sure URLs have http:// or https:// prefix
+    // No longer needed but kept for compatibility
     ensureUrl(url) {
-        if (!url) return '';
-        if (url.startsWith('http://') || url.startsWith('https://')) {
-            return url;
-        }
-        return 'https://' + url;
+        return url || '';
     }
 
     // Add a new item from the input fields
     addNewItem() {
         const title = this.elements.newItemTitle.value.trim();
-        const url = this.elements.newItemUrl.value.trim();
         
         if (!title) {
-            this.showNotification('Title is required!', 'danger');
+            this.showNotification('Item is required!', 'danger');
             return;
         }
         
-        const newItem = new Item(title, url);
+        const newItem = new Item(title);
         this.items.push(newItem);
         this.saveToLocalStorage();
         this.renderItemList();
         
         // Clear input fields
         this.elements.newItemTitle.value = '';
-        this.elements.newItemUrl.value = '';
         
         this.showNotification('Item added successfully!');
     }
@@ -272,20 +256,18 @@ class ElomaticApp {
         lines.forEach(line => {
             if (!line.trim()) return;
             
-            // Parse the line (format: title, url)
-            const parts = line.split(',');
-            const title = parts[0].trim();
-            const url = parts.length > 1 ? parts[1].trim() : '';
+            // Each line is a complete item
+            const title = line.trim();
             
             if (!title) return;
             
             // Try to find the item in the old array to preserve score and comparisons
-            const oldItem = oldItems.find(item => item.title === title && item.url === url);
+            const oldItem = oldItems.find(item => item.title === title);
             
             if (oldItem) {
                 this.items.push(oldItem);
             } else {
-                this.items.push(new Item(title, url));
+                this.items.push(new Item(title));
             }
         });
         
@@ -299,7 +281,7 @@ class ElomaticApp {
         // Prepare the text for bulk editing
         let editText = '';
         this.items.forEach(item => {
-            editText += `${item.title}, ${item.url}\n`;
+            editText += `${item.title}\n`;
         });
         
         this.elements.bulkEditTextarea.value = editText;
@@ -398,27 +380,9 @@ class ElomaticApp {
         this.elements.comparisonItemA.querySelector('.comparison-item-title').textContent = itemA.title;
         this.elements.comparisonItemA.querySelector('.comparison-item-score').textContent = itemA.score;
         
-        const urlElementA = this.elements.comparisonItemA.querySelector('.comparison-item-url');
-        if (itemA.url) {
-            urlElementA.href = this.ensureUrl(itemA.url);
-            urlElementA.textContent = itemA.url;
-            urlElementA.style.display = 'block';
-        } else {
-            urlElementA.style.display = 'none';
-        }
-        
         // Item B
         this.elements.comparisonItemB.querySelector('.comparison-item-title').textContent = itemB.title;
         this.elements.comparisonItemB.querySelector('.comparison-item-score').textContent = itemB.score;
-        
-        const urlElementB = this.elements.comparisonItemB.querySelector('.comparison-item-url');
-        if (itemB.url) {
-            urlElementB.href = this.ensureUrl(itemB.url);
-            urlElementB.textContent = itemB.url;
-            urlElementB.style.display = 'block';
-        } else {
-            urlElementB.style.display = 'none';
-        }
     }
 
     // Handle comparison selection
@@ -636,30 +600,26 @@ class ElomaticApp {
         modal.classList.remove('active');
     }
 
-    // Export data to CSV
+    // Export data to TXT
     exportToCsv() {
         if (this.items.length === 0) {
             this.showNotification('No items to export', 'warning');
             return;
         }
         
-        let csvContent = 'item,URL,score\n';
+        let textContent = '';
         
         this.items.forEach(item => {
-            // Escape commas and quotes in the title and URL if needed
-            const escapedTitle = item.title.includes(',') ? `"${item.title}"` : item.title;
-            const escapedUrl = item.url.includes(',') ? `"${item.url}"` : item.url;
-            
-            csvContent += `${escapedTitle},${escapedUrl},${item.score}\n`;
+            textContent += `${item.title}\n`;
         });
         
         // Create a Blob and download link
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         
         const link = document.createElement('a');
         link.setAttribute('href', url);
-        link.setAttribute('download', 'elomatic_data.csv');
+        link.setAttribute('download', 'elomatic_data.txt');
         link.style.visibility = 'hidden';
         
         document.body.appendChild(link);
@@ -669,7 +629,7 @@ class ElomaticApp {
         this.showNotification('Data exported successfully!');
     }
 
-    // Handle CSV import
+    // Handle TXT import
     handleCsvImport(event) {
         const file = event.target.files[0];
         if (!file) return;
@@ -680,67 +640,37 @@ class ElomaticApp {
             const content = e.target.result;
             const lines = content.split('\n');
             
-            // Skip header row
-            const header = lines[0].toLowerCase();
-            if (!header.includes('item') || !header.includes('score')) {
-                this.showNotification('Invalid CSV format. Header should contain "item" and "score" columns.', 'danger');
-                return;
-            }
-            
-            const headerParts = header.split(',');
-            const titleIndex = headerParts.findIndex(part => part.trim() === 'item');
-            const urlIndex = headerParts.findIndex(part => part.trim() === 'url');
-            const scoreIndex = headerParts.findIndex(part => part.trim() === 'score');
-            
-            if (titleIndex === -1 || scoreIndex === -1) {
-                this.showNotification('CSV must have "item" and "score" columns', 'danger');
-                return;
-            }
-            
             // Keep old items for reference
             const oldItems = [...this.items];
             this.items = [];
             
             let importCount = 0;
             
-            // Process data rows
-            for (let i = 1; i < lines.length; i++) {
+            // Process each line as an item
+            for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim();
                 if (!line) continue;
                 
-                // Handle quoted values that may contain commas
-                const values = this.parseCSVLine(line);
-                
-                if (values.length <= Math.max(titleIndex, scoreIndex)) continue;
-                
-                const title = values[titleIndex].trim();
-                const url = urlIndex !== -1 && values.length > urlIndex ? values[urlIndex].trim() : '';
-                const scoreStr = values[scoreIndex].trim();
-                
-                if (!title) continue;
-                
-                // Try to parse score as a number
-                const score = parseInt(scoreStr) || 1500;
+                // Each line is a complete item
+                const title = line;
                 
                 // Check if this item already exists
                 const existingItemIndex = oldItems.findIndex(item => 
-                    item.title === title && item.url === url);
+                    item.title === title);
                 
                 if (existingItemIndex !== -1) {
-                    // Update existing item
-                    const existingItem = oldItems[existingItemIndex];
-                    existingItem.score = score;
-                    this.items.push(existingItem);
+                    // Keep existing item with its score
+                    this.items.push(oldItems[existingItemIndex]);
                 } else {
-                    // Create new item
-                    this.items.push(new Item(title, url, score));
+                    // Create new item with default score
+                    this.items.push(new Item(title));
                 }
                 
                 importCount++;
             }
             
             if (importCount === 0) {
-                this.showNotification('No valid items found in the CSV', 'warning');
+                this.showNotification('No valid items found in the file', 'warning');
                 this.items = oldItems; // Restore old items
             } else {
                 this.saveToLocalStorage();
